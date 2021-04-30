@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Tree (run) where
 
@@ -13,11 +14,16 @@ leaf = Tree []
 -- | It will probably be removed when functionalities are split up in their respective modules and there is an actual api
 run :: IO ()
 run = do
-  let t = treeGallery 5
+  let pre = genTrees 16
+      t = filter (\ts -> length ts == maximum (length <$> pre)) pre
   putStrLn "Exit: No Error"
-  --interactiveTree
-  display (InWindow "Trees" (round cDWidth, round cDHeight) (0, 0)) white t
+  print $ "#Trees: " ++ show (length pre)
+  print $ "Max Tree: " ++ show (maximum $ length <$> t)
+  print $ "Max Depth: " ++ show (1 + maximum (maximum <$> t))
 
+  --interactiveTree
+  --display (InWindow "Trees" (round cDWidth, round cDHeight) (0, 0)) white t
+  --interactiveRepresent t
 maxOccurrence :: [Depth] -> Int
 maxOccurrence ts = maximum $ mo ts (maximum ts) 0
   where
@@ -35,10 +41,10 @@ horOffset :: Float
 horOffset = 0
 
 vertMargin :: Float
-vertMargin = -50
+vertMargin = -25
 
 horMargin :: Float
-horMargin = 20
+horMargin = 10
 
 rootCoord :: Point
 rootCoord = (0, 0)
@@ -140,8 +146,7 @@ genTrees' ts c = let (d, w, mu) = nextTree ts
                       Nothing -> assured
 
 treeGallery :: Count -> Picture
-treeGallery c = pictures
-  $ treeGallery' (filter ((> c) . length) $ genTrees c) 0
+treeGallery c = pictures $ treeGallery' (genTrees c) 0
 
 treeGallery' :: [[Depth]] -> Float -> [Picture]
 treeGallery' (t:ts) margin = translate (-margin) 0 (depthTreeToPic t)
@@ -152,14 +157,14 @@ interactiveTree :: IO ()
 interactiveTree = play
   (InWindow "Trees" (round cDWidth, round cDHeight) (0, 0))
   white
-  10
+  5
   [0, 1]
   depthTreeToPic
   handleInputs
   (const id)
 
 handleInputs :: Event -> [Depth] -> [Depth]
-handleInputs (EventKey (SpecialKey k) Up _ _) t = case k of
+handleInputs (EventKey (SpecialKey k) Down _ _) t = case k of
   KeyUp    -> if last t > 1
               then unsafeUp t
               else t
@@ -167,3 +172,28 @@ handleInputs (EventKey (SpecialKey k) Up _ _) t = case k of
   KeyLeft  -> root
   KeyRight -> wider t
 handleInputs _ t = t
+
+class Representable a where
+  represent :: a -> Picture
+
+instance Representable [Depth] where
+  represent = depthTreeToPic
+
+interactiveRepresent :: Representable a => [a] -> IO ()
+interactiveRepresent rs = play
+  (InWindow "Trees" (round cDWidth, round cDHeight) (0, 0))
+  white
+  60
+  (rs, 0)
+  (\(rs, ix) -> represent (rs !! (ix `mod` length rs)))
+  handleIRep
+  (const id)
+
+handleIRep :: Event -> ([a], Index) -> ([a], Index)
+handleIRep (EventKey (MouseButton k) _ _ _) (rs, ix) = case k of
+  WheelUp   -> if ix - 10 < 0
+               then (rs, length rs - 10)
+               else (rs, ix - 10)
+  WheelDown -> (rs, ix + 10)
+  _         -> (rs, ix)
+handleIRep _ t = t
