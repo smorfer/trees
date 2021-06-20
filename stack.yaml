@@ -43,6 +43,7 @@ packages:
 extra-deps:
 - gloss-1.13.2.1@sha256:273d02d30e1896932d45424dab6022a16986c0ed3eef6937776b5f40854ce51c,4075
 - vector-0.12.3.0@sha256:0ae2c1ba86f0077910be242ec6802cc3d7725fe7b2bea6987201aa3737b239b5,7953
+- poly-0.5.0.0@sha256:e8c991d1f70a23468ca5c26e5c7747f229cd4c6fca7c6a608a231b970dde96be,2721
 
 
 # Override default flag values for local packages and extra-deps

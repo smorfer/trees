@@ -1,12 +1,25 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 
-module Tree (run) where
+module Tree (run, dTreeUnfold, tPartition, tToPoly, depthTreeToPoly) where
 
 import           Graphics.Gloss (white, blank, display, Display(InWindow), Point
                                , Picture, line, pictures, translate)
 import           Debug.Trace
-import           Graphics.Gloss.Interface.Pure.Game
+import           Graphics.Gloss.Interface.Pure.Game (green, white, color, line
+                                                   , pictures, scale, text
+                                                   , translate, play
+                                                   , Display(InWindow), Picture
+                                                   , Point, Key(SpecialKey)
+                                                   , KeyState(Down)
+                                                   , SpecialKey(KeyRight, KeyUp, KeyDown, KeyLeft)
+                                                   , Event(EventKey))
+import           Data.List (groupBy, nub, partition)
+import           Data.Bifunctor (Bifunctor(bimap), second)
+import           Data.Poly.Sparse (VPoly, pattern X)
 
 leaf = Tree []
 
@@ -14,16 +27,22 @@ leaf = Tree []
 -- | It will probably be removed when functionalities are split up in their respective modules and there is an actual api
 run :: IO ()
 run = do
-  let pre = genTrees 16
-      t = filter (\ts -> length ts == maximum (length <$> pre)) pre
+  let new = nub . combGenDTrees $ 5
+      eqTest = fdTreePolyEquality new
+      filtered = concat
+        $ snd <$> filter ((> 1) . length . snd) (fdTreePolyEquality new)
   putStrLn "Exit: No Error"
-  print $ "#Trees: " ++ show (length pre)
-  print $ "Max Tree: " ++ show (maximum $ length <$> t)
-  print $ "Max Depth: " ++ show (1 + maximum (maximum <$> t))
-
+  print $ "#Trees: " ++ show (length new)
+  print $ "Max Tree: " ++ show (maximum $ length . dT <$> new)
+  print
+    $ "Max Depth: "
+    ++ show (1 + maximum (maximum . dT <$> filter ((/= []) . dT) new))
+  print $ filter ((> 1) . snd) $ second length <$> eqTest
+  --print new
   --interactiveTree
   --display (InWindow "Trees" (round cDWidth, round cDHeight) (0, 0)) white t
-  --interactiveRepresent t
+  interactiveRepresent filtered
+
 maxOccurrence :: [Depth] -> Int
 maxOccurrence ts = maximum $ mo ts (maximum ts) 0
   where
@@ -41,10 +60,10 @@ horOffset :: Float
 horOffset = 0
 
 vertMargin :: Float
-vertMargin = -25
+vertMargin = -40
 
 horMargin :: Float
-horMargin = 10
+horMargin = 30
 
 rootCoord :: Point
 rootCoord = (0, 0)
@@ -60,9 +79,10 @@ type Id = Int
 type Count = Int
 
 data T a = T a [T a]
+         | Empty
   deriving Show
 
-type DepthTree = T Int
+type DepthTree = T Depth
 
 -- Tree [Tree [], Tree [Tree [], Tree []]]
 treeDepth :: Tree -> DepthTree
@@ -73,6 +93,20 @@ treeDepth' d (Tree ts) = T d $ treeDepth' (d + 1) <$> ts
 
 dTreeFold :: DepthTree -> [Depth]
 dTreeFold (T d ts) = d:concatMap dTreeFold ts
+dTreeFold Empty = []
+
+dTreeUnfold :: [Depth] -> DepthTree
+dTreeUnfold [d] = T d []
+dTreeUnfold (d:ds) = T d (dTreeUnfold <$> tPartition (d:ds))
+dTreeUnfold [] = Empty
+
+tPartition :: [Depth] -> [[Depth]]
+tPartition (d:ds) = tp ds
+  where
+    tp (d':ds') = let (p, ps) = span (d' <) ds'
+                  in (d':p):tp ps
+    tp [] = []
+tPartition [] = []
 
 revix :: Int -> [a] -> Int
 revix ix ls = length ls - 1 - ix
@@ -171,13 +205,30 @@ handleInputs (EventKey (SpecialKey k) Down _ _) t = case k of
   KeyDown  -> deeper t
   KeyLeft  -> root
   KeyRight -> wider t
+  _        -> error "Undefined key"
 handleInputs _ t = t
 
-class Representable a where
+class Show a => Representable a where
   represent :: a -> Picture
 
 instance Representable [Depth] where
-  represent = depthTreeToPic
+  represent ts = pictures
+    [ depthTreeToPic ts
+    , translate (10 - cDWidth / 2) (10 - cDHeight / 2)
+      . scale 0.3 0.3
+      . text
+      . show
+      $ ts]
+
+instance Representable FDTree where
+  represent ts = pictures
+    [ depthTreeToPic $ dT ts
+    , translate (10 - cDWidth / 2) (10 - cDHeight / 2)
+      . scale 0.1 0.1
+      . text
+      . show
+      . fdTreeToPoly
+      $ ts]
 
 interactiveRepresent :: Representable a => [a] -> IO ()
 interactiveRepresent rs = play
@@ -190,10 +241,86 @@ interactiveRepresent rs = play
   (const id)
 
 handleIRep :: Event -> ([a], Index) -> ([a], Index)
-handleIRep (EventKey (MouseButton k) _ _ _) (rs, ix) = case k of
-  WheelUp   -> if ix - 10 < 0
-               then (rs, length rs - 10)
-               else (rs, ix - 10)
-  WheelDown -> (rs, ix + 10)
-  _         -> (rs, ix)
+handleIRep (EventKey (SpecialKey k) Down _ _) (rs, ix) = case k of
+  KeyLeft  -> if ix - 1 < 0
+              then (rs, length rs - 1)
+              else (rs, ix - 1)
+  KeyRight -> (rs, ix + 1)
+  _        -> (rs, ix)
 handleIRep _ t = t
+
+newtype FDTree = FDTree { dT :: [Depth] }
+  deriving Eq
+
+instance Show FDTree where
+  show = show . dT
+
+newRep :: [Depth] -> FDTree
+newRep = FDTree
+
+combineDTree :: FDTree -> FDTree -> FDTree
+combineDTree (FDTree lhs) (FDTree rhs) = FDTree $ 0:(succ <$> lhs ++ rhs)
+
+fuseDTree :: FDTree -> FDTree -> FDTree
+fuseDTree (FDTree []) (FDTree rhs) = FDTree []
+fuseDTree (FDTree lhs) (FDTree []) = FDTree []
+fuseDTree (FDTree lhs) (FDTree rhs) = FDTree $ lhs ++ tail rhs
+
+combGenDTrees :: Count -> [FDTree]
+combGenDTrees = combGenDTrees' []
+
+combGenDTrees' :: [FDTree] -> Count -> [FDTree]
+combGenDTrees' [] c = combGenDTrees' [FDTree []] c
+combGenDTrees' ts 0 = ts
+combGenDTrees' ts c = debug (length ts)
+  `seq` combGenDTrees'
+    (ts ++ nub (combineDTree <$> ts <*> ts) ++ nub (fuseDTree <$> ts <*> ts))
+    (pred c)
+
+debug :: Show a => a -> a
+debug a = trace (show a) a
+
+fdTreeToGraph :: FDTree -> [(Int, Depth)]
+fdTreeToGraph = depthTreeToGraph . dT
+
+depthTreeToGraph :: [Depth] -> [(Int, Depth)]
+depthTreeToGraph = dttg 0
+  where
+    dttg c (d:ds) = (c, d):dttg (c + 1) ds
+    dttg _ [] = []
+
+instance Representable [(Int, Depth)] where
+  represent ps = pictures
+    [ line
+        [ ((-cDWidth / 2) + 50, cDHeight / 2)
+        , ((-cDWidth / 2) + 50, -cDHeight / 2)]
+    , line [(-cDWidth / 2, 50), (cDWidth / 2, 50)]
+    , color green
+      $ translate (-cDWidth / 2) 0
+      $ scale 50 50
+      $ line (bimap fromIntegral fromIntegral <$> ps)
+    , translate (10 - cDWidth / 2) (10 - cDHeight / 2)
+      . scale 0.3 0.3
+      . text
+      . show
+      . fmap snd
+      $ ps]
+
+fdTreeToPoly :: FDTree -> VPoly Int
+fdTreeToPoly = depthTreeToPoly . dT
+
+depthTreeToPoly :: [Depth] -> VPoly Int
+depthTreeToPoly = tToPoly . dTreeUnfold
+
+tToPoly :: DepthTree -> VPoly Int
+tToPoly Empty = 0
+tToPoly (T d []) = (X ^ fromIntegral d) :: VPoly Int
+tToPoly (T (d :: Int) ds) = X ^ fromIntegral d + product (tToPoly <$> ds)
+  :: VPoly Int
+
+fdTreePolyEquality :: [FDTree] -> [(VPoly Int, [FDTree])]
+fdTreePolyEquality (t:ts) =
+  let tpoly = fdTreeToPoly t
+      (eqt, neqt) = partition ((tpoly ==) . fdTreeToPoly) ts
+  in (tpoly, t:eqt):fdTreePolyEquality neqt
+fdTreePolyEquality [] = []
