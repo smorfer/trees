@@ -17,7 +17,7 @@ import           Graphics.Gloss.Interface.Pure.Game (green, white, color, line
                                                    , KeyState(Down)
                                                    , SpecialKey(KeyRight, KeyUp, KeyDown, KeyLeft)
                                                    , Event(EventKey))
-import           Data.List (groupBy, nub, partition)
+import           Data.List (groupBy, nub, partition, maximumBy)
 import           Data.Bifunctor (Bifunctor(bimap), second)
 import           Data.Poly.Sparse (VPoly, pattern X)
 
@@ -27,7 +27,7 @@ leaf = Tree []
 -- | It will probably be removed when functionalities are split up in their respective modules and there is an actual api
 run :: IO ()
 run = do
-  let new = nub . combGenDTrees $ 5
+  let new = nub . combGenDTrees $ 4
       eqTest = fdTreePolyEquality new
       filtered = concat
         $ snd <$> filter ((> 1) . length . snd) (fdTreePolyEquality new)
@@ -37,11 +37,13 @@ run = do
   print
     $ "Max Depth: "
     ++ show (1 + maximum (maximum . dT <$> filter ((/= []) . dT) new))
-  print $ filter ((> 1) . snd) $ second length <$> eqTest
+  print
+    $ maximumBy (flip $ flip (compare . snd) . snd)
+    $ second length <$> eqTest
   --print new
   --interactiveTree
   --display (InWindow "Trees" (round cDWidth, round cDHeight) (0, 0)) white t
-  interactiveRepresent filtered
+  interactiveRepresent $ concat $ snd <$> eqTest
 
 maxOccurrence :: [Depth] -> Int
 maxOccurrence ts = maximum $ mo ts (maximum ts) 0
