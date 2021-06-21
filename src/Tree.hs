@@ -20,6 +20,8 @@ import           Graphics.Gloss.Interface.Pure.Game (green, white, color, line
 import           Data.List (groupBy, nub, partition, maximumBy)
 import           Data.Bifunctor (Bifunctor(bimap), second)
 import           Data.Poly.Sparse (VPoly, pattern X)
+import           Control.Parallel
+import           Control.DeepSeq
 
 leaf = Tree []
 

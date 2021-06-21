@@ -24,6 +24,8 @@ dependencies:
 - gloss
 - vector
 - poly
+- parallel
+- deepseq
 
 library:
   source-dirs: src
